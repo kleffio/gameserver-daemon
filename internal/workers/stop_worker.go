@@ -34,6 +34,11 @@ func (w *StopWorker) Handle(ctx context.Context, job *jobs.Job) error {
 	log.Info("Stopping server", ports.LogKeyServerID, spec.ServerID)
 
 	if spec.ProjectID == "" {
+		if spec.EnvironmentID != "" {
+			spec.ProjectID = spec.EnvironmentID
+		}
+	}
+	if spec.ProjectID == "" {
 		return fmt.Errorf("invalid payload: project_id is required")
 	}
 

@@ -208,6 +208,10 @@ func (a *Adapter) Logs(_ context.Context, _ string, _ string, _ bool) (io.ReadCl
 	return io.NopCloser(bytes.NewReader(nil)), nil
 }
 
+func (a *Adapter) Discover(_ context.Context) ([]*ports.ServerRecord, error) {
+	return nil, nil
+}
+
 // --- Agones strategy ---
 
 func (a *Adapter) deployAgones(ctx context.Context, spec ports.WorkloadSpec) (*ports.RunningServer, error) {
@@ -308,7 +312,7 @@ func (a *Adapter) deployStatefulSet(ctx context.Context, spec ports.WorkloadSpec
 	serverLabels := labels.WorkloadLabels{
 		OwnerID: spec.OwnerID, ServerID: spec.ServerID, BlueprintID: spec.BlueprintID, NodeID: a.nodeID, ProjectID: spec.ProjectID, ProjectSlug: spec.ProjectSlug,
 	}
-	selectorLabels := map[string]string{"app": spec.ServerID, labelStrategy: "statefulset", labels.ProjectID: spec.ProjectID}
+	selectorLabels := map[string]string{"app": spec.ServerID, labelStrategy: "statefulset", labels.ProjectID: spec.ProjectID, labels.EnvironmentID: spec.EnvironmentID}
 	if spec.ProjectSlug != "" {
 		selectorLabels[labels.ProjectSlug] = spec.ProjectSlug
 	}
@@ -350,7 +354,7 @@ func (a *Adapter) deployDeployment(ctx context.Context, spec ports.WorkloadSpec)
 	serverLabels := labels.WorkloadLabels{
 		OwnerID: spec.OwnerID, ServerID: spec.ServerID, BlueprintID: spec.BlueprintID, NodeID: a.nodeID, ProjectID: spec.ProjectID, ProjectSlug: spec.ProjectSlug,
 	}
-	selectorLabels := map[string]string{"app": spec.ServerID, labelStrategy: "deployment", labels.ProjectID: spec.ProjectID}
+	selectorLabels := map[string]string{"app": spec.ServerID, labelStrategy: "deployment", labels.ProjectID: spec.ProjectID, labels.EnvironmentID: spec.EnvironmentID}
 	if spec.ProjectSlug != "" {
 		selectorLabels[labels.ProjectSlug] = spec.ProjectSlug
 	}
@@ -422,11 +426,12 @@ func ensureProjectMatch(projectID string, resourceLabels map[string]string, work
 	if projectID == "" {
 		return nil
 	}
-	got := strings.TrimSpace(resourceLabels[labels.ProjectID])
-	if got == projectID {
+	gotProject := strings.TrimSpace(resourceLabels[labels.ProjectID])
+	gotEnvironment := strings.TrimSpace(resourceLabels[labels.EnvironmentID])
+	if gotProject == projectID || gotEnvironment == projectID {
 		return nil
 	}
-	return fmt.Errorf("%w: workload %s belongs to project %q, not %q", ports.ErrProjectMismatch, workloadID, got, projectID)
+	return fmt.Errorf("%w: workload %s belongs to project/environment %q/%q, not %q", ports.ErrProjectMismatch, workloadID, gotProject, gotEnvironment, projectID)
 }
 
 func buildEnvList(overrides map[string]string) []interface{} {

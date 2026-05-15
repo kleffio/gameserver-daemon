@@ -61,6 +61,7 @@ func TestFromMap_Valid(t *testing.T) {
 		labels.BlueprintID: "blue-789",
 		labels.NodeID:      "node-001",
 		labels.ProjectID:   "proj-abc",
+		labels.EnvironmentID: "proj-abc",
 		labels.ProjectSlug: "my-project",
 		labels.ManagedBy:   labels.ManagedByValue,
 		"some-other-label": "ignored",

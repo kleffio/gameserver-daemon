@@ -76,6 +76,57 @@ func (a *Adapter) Ping(ctx context.Context) error {
 	return nil
 }
 
+// EnsureNamespaceScope creates the per-namespace bridge network (kleff_ns_{nsID})
+// if it does not already exist. This is the Phase 1 replacement for per-project
+// networking — one bridge per namespace keeps tenants isolated without bridge exhaustion.
+func (a *Adapter) EnsureNamespaceScope(ctx context.Context, namespaceID string) (*ports.ProjectScope, error) {
+	if namespaceID == "" {
+		return nil, fmt.Errorf("namespace id is required")
+	}
+	name := namespaceNetworkName(namespaceID)
+
+	existing, err := a.client.NetworkList(ctx, dnet.ListOptions{
+		Filters: filters.NewArgs(filters.Arg("label", labels.NamespaceID+"="+namespaceID)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list namespace networks: %w", err)
+	}
+	if len(existing) > 0 {
+		return &ports.ProjectScope{
+			ProjectID:   namespaceID,
+			NetworkName: existing[0].Name,
+		}, nil
+	}
+
+	netLabels := map[string]string{
+		labels.ManagedBy:    labels.ManagedByValue,
+		labels.NamespaceID: namespaceID,
+		labels.NodeID:      a.nodeID,
+	}
+	if _, err := a.client.NetworkCreate(ctx, name, dnet.CreateOptions{
+		Driver: "bridge",
+		Labels: netLabels,
+	}); err != nil {
+		if !strings.Contains(err.Error(), "already exists") {
+			if isAddressPoolExhaustedError(err) {
+				_, _ = a.pruneUnusedProjectNetworks(ctx)
+				if _, retryErr := a.client.NetworkCreate(ctx, name, dnet.CreateOptions{
+					Driver: "bridge",
+					Labels: netLabels,
+				}); retryErr != nil && !strings.Contains(retryErr.Error(), "already exists") {
+					return nil, fmt.Errorf("failed to create namespace network after prune: %w", retryErr)
+				}
+			} else {
+				return nil, fmt.Errorf("failed to create namespace network: %w", err)
+			}
+		}
+	}
+	return &ports.ProjectScope{
+		ProjectID:   namespaceID,
+		NetworkName: name,
+	}, nil
+}
+
 // EnsureProjectScope creates the per-project bridge network if it does not
 // already exist. The network is the isolation boundary between projects — all
 // containers in a project attach to it, and nothing else can reach them.
@@ -101,7 +152,8 @@ func (a *Adapter) EnsureProjectScope(ctx context.Context, projectID, projectSlug
 
 	netLabels := map[string]string{
 		labels.ManagedBy: labels.ManagedByValue,
-		labels.ProjectID: projectID,
+			labels.ProjectID: projectID,
+			labels.EnvironmentID: projectID,
 		labels.NodeID:    a.nodeID,
 	}
 	if projectSlug != "" {
@@ -211,11 +263,18 @@ func (a *Adapter) TeardownProjectScope(ctx context.Context, projectID string) er
 
 // Deploy pulls the image and starts a new container.
 func (a *Adapter) Deploy(ctx context.Context, spec ports.WorkloadSpec) (*ports.RunningServer, error) {
-	if spec.ProjectID == "" {
-		return nil, fmt.Errorf("workload spec missing project_id")
+	if spec.NamespaceID == "" && spec.ProjectID == "" {
+		return nil, fmt.Errorf("workload spec missing namespace_id")
 	}
 
-	scope, err := a.EnsureProjectScope(ctx, spec.ProjectID, spec.ProjectSlug)
+	// Phase 1: prefer namespace-scoped bridge; fall back to project scope for legacy specs.
+	var scope *ports.ProjectScope
+	var err error
+	if spec.NamespaceID != "" {
+		scope, err = a.EnsureNamespaceScope(ctx, spec.NamespaceID)
+	} else {
+		scope, err = a.EnsureProjectScope(ctx, spec.ProjectID, spec.ProjectSlug)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -252,6 +311,7 @@ func (a *Adapter) Deploy(ctx context.Context, spec ports.WorkloadSpec) (*ports.R
 			ServerID:    spec.ServerID,
 			BlueprintID: spec.BlueprintID,
 			NodeID:      a.nodeID,
+			NamespaceID: spec.NamespaceID,
 			ProjectID:   spec.ProjectID,
 			ProjectSlug: spec.ProjectSlug,
 		},
@@ -262,10 +322,15 @@ func (a *Adapter) Deploy(ctx context.Context, spec ports.WorkloadSpec) (*ports.R
 
 // Start restarts a stopped container. If it no longer exists, re-creates it.
 func (a *Adapter) Start(ctx context.Context, spec ports.WorkloadSpec) (*ports.RunningServer, error) {
-	if spec.ProjectID == "" {
-		return nil, fmt.Errorf("workload spec missing project_id")
+	if spec.NamespaceID == "" && spec.ProjectID == "" {
+		return nil, fmt.Errorf("workload spec missing namespace_id")
 	}
-	containerID, err := a.findContainer(ctx, spec.ProjectID, spec.ServerID)
+	// Use EffectiveNamespaceID for authorization: prefers new label, falls back to project_id.
+	effectiveID := spec.NamespaceID
+	if effectiveID == "" {
+		effectiveID = spec.ProjectID
+	}
+	containerID, err := a.findContainer(ctx, effectiveID, spec.ServerID)
 	if err != nil {
 		if errors.Is(err, ports.ErrProjectMismatch) {
 			return nil, err
@@ -443,18 +508,18 @@ func (a *Adapter) Logs(ctx context.Context, projectID, workloadID string, follow
 	return rc, nil
 }
 
-// ListRunning returns a ServerRecord for each container currently managed by
-// this daemon that is in the "running" state. Used to reseed the in-memory
-// repository after a daemon restart.
-func (a *Adapter) ListRunning(ctx context.Context) ([]*ports.ServerRecord, error) {
+// Discover lists all kleff-managed containers on this node and returns a ServerRecord for each.
+// Called on startup to re-populate the in-memory server repository after a daemon restart.
+func (a *Adapter) Discover(ctx context.Context) ([]*ports.ServerRecord, error) {
 	containers, err := a.client.ContainerList(ctx, container.ListOptions{
+		All: true,
 		Filters: filters.NewArgs(
 			filters.Arg("label", labels.ManagedBy+"="+labels.ManagedByValue),
-			filters.Arg("status", "running"),
+			filters.Arg("label", labels.NodeID+"="+a.nodeID),
 		),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list managed containers: %w", err)
+		return nil, fmt.Errorf("discover containers: %w", err)
 	}
 
 	records := make([]*ports.ServerRecord, 0, len(containers))
@@ -463,12 +528,23 @@ func (a *Adapter) ListRunning(ctx context.Context) ([]*ports.ServerRecord, error
 		if wl.ServerID == "" {
 			continue
 		}
+		// For namespace workloads, ProjectID = NamespaceID (matches provision_worker convention).
+		projectID := wl.NamespaceID
+		if projectID == "" {
+			projectID = wl.ProjectID
+		}
+		status := "Stopped"
+		if c.State == "running" {
+			status = "Running"
+		}
 		records = append(records, &ports.ServerRecord{
-			ID:         wl.ServerID,
-			Status:     "Running",
-			NodeID:     wl.NodeID,
-			RuntimeRef: c.ID,
-			ProjectID:  wl.ProjectID,
+			ID:            wl.ServerID,
+			Name:          wl.ServerID,
+			Status:        status,
+			NodeID:        wl.NodeID,
+			RuntimeRef:    c.ID,
+			ProjectID:     projectID,
+			EnvironmentID: wl.EnvironmentID,
 		})
 	}
 	return records, nil
@@ -495,12 +571,14 @@ func (a *Adapter) createContainer(ctx context.Context, spec ports.WorkloadSpec, 
 	}
 
 	wl := labels.WorkloadLabels{
-		OwnerID:     spec.OwnerID,
-		ServerID:    spec.ServerID,
-		BlueprintID: spec.BlueprintID,
-		NodeID:      a.nodeID,
-		ProjectID:   spec.ProjectID,
-		ProjectSlug: spec.ProjectSlug,
+		OwnerID:       spec.OwnerID,
+		ServerID:      spec.ServerID,
+		BlueprintID:   spec.BlueprintID,
+		NodeID:        a.nodeID,
+		NamespaceID:   spec.NamespaceID,
+		ProjectID:     spec.ProjectID,
+		EnvironmentID: spec.EnvironmentID,
+		ProjectSlug:   spec.ProjectSlug,
 	}
 	containerLabels := wl.ToMap()
 
@@ -617,11 +695,22 @@ func (a *Adapter) findContainer(ctx context.Context, projectID, workloadID strin
 	}
 	c := containers[0]
 	if projectID != "" {
-		if got := c.Labels[labels.ProjectID]; got != projectID {
-			return "", fmt.Errorf("%w: workload %s belongs to project %q, not %q", ports.ErrProjectMismatch, workloadID, got, projectID)
+		// Dual-read auth: accept match on namespace_id (new), project_id, or environment_id (legacy).
+		gotNS := c.Labels[labels.NamespaceID]
+		gotProject := c.Labels[labels.ProjectID]
+		gotEnvironment := c.Labels[labels.EnvironmentID]
+		if gotNS != projectID && gotProject != projectID && gotEnvironment != projectID {
+			return "", fmt.Errorf("%w: workload %s belongs to ns/proj/env %q/%q/%q, not %q",
+				ports.ErrProjectMismatch, workloadID, gotNS, gotProject, gotEnvironment, projectID)
 		}
 	}
 	return c.ID, nil
+}
+
+// namespaceNetworkName derives a short, deterministic bridge network name for
+// the namespace. Format: kleff_ns_{first12charsOfNsID}.
+func namespaceNetworkName(namespaceID string) string {
+	return "kleff_ns_" + shortID(namespaceID)
 }
 
 // projectNetworkName derives a short, deterministic bridge network name from

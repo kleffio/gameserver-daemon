@@ -6,9 +6,17 @@ const (
 	ServerID    = "kleff.io/server_id" // Deprecated: use WorkloadID; kept for reconcile during rollout
 	BlueprintID = "kleff.io/blueprint_id"
 	NodeID      = "kleff.io/node_id"
-	ProjectID   = "kleff.io/project_id"
-	ProjectSlug = "kleff.io/project_slug"
-	ManagedBy   = "kleff.io/managed_by"
+
+	// Phase 1: NamespaceID is the new authoritative tenancy label.
+	// New containers get this label; legacy containers only have ProjectID.
+	NamespaceID = "kleff.io/namespace_id"
+
+	// Legacy labels — preserved for dual-read compat.
+	// Old containers have these; new containers get NamespaceID instead.
+	ProjectID     = "kleff.io/project_id"
+	EnvironmentID = "kleff.io/environment_id"
+	ProjectSlug   = "kleff.io/project_slug"
+	ManagedBy     = "kleff.io/managed_by"
 
 	ManagedByValue = "kleff-daemon"
 
@@ -18,12 +26,14 @@ const (
 )
 
 type WorkloadLabels struct {
-	OwnerID     string
-	ServerID    string
-	BlueprintID string
-	NodeID      string
-	ProjectID   string
-	ProjectSlug string
+	OwnerID       string
+	ServerID      string
+	BlueprintID   string
+	NodeID        string
+	NamespaceID   string // Phase 1: primary tenancy key
+	ProjectID     string // Legacy fallback
+	EnvironmentID string
+	ProjectSlug   string
 }
 
 func (l *WorkloadLabels) ToMap() map[string]string {
@@ -36,13 +46,29 @@ func (l *WorkloadLabels) ToMap() map[string]string {
 		ManagedBy:      ManagedByValue,
 		ComposeProject: ComposeProjectValue,
 	}
+	if l.NamespaceID != "" {
+		m[NamespaceID] = l.NamespaceID
+	}
 	if l.ProjectID != "" {
 		m[ProjectID] = l.ProjectID
+	}
+	if l.EnvironmentID != "" {
+		m[EnvironmentID] = l.EnvironmentID
 	}
 	if l.ProjectSlug != "" {
 		m[ProjectSlug] = l.ProjectSlug
 	}
 	return m
+}
+
+// EffectiveNamespaceID returns the namespace ID for authorization.
+// It prefers the new namespace_id label and falls back to project_id
+// for legacy containers whose labels cannot be updated (Docker immutability).
+func (l *WorkloadLabels) EffectiveNamespaceID() string {
+	if l.NamespaceID != "" {
+		return l.NamespaceID
+	}
+	return l.ProjectID // legacy fallback
 }
 
 func FromMap(m map[string]string) WorkloadLabels {
@@ -55,11 +81,13 @@ func FromMap(m map[string]string) WorkloadLabels {
 		workloadID = m[ServerID]
 	}
 	return WorkloadLabels{
-		OwnerID:     m[OwnerID],
-		ServerID:    workloadID,
-		BlueprintID: m[BlueprintID],
-		NodeID:      m[NodeID],
-		ProjectID:   m[ProjectID],
-		ProjectSlug: m[ProjectSlug],
+		OwnerID:       m[OwnerID],
+		ServerID:      workloadID,
+		BlueprintID:   m[BlueprintID],
+		NodeID:        m[NodeID],
+		NamespaceID:   m[NamespaceID],
+		ProjectID:     m[ProjectID],
+		EnvironmentID: m[EnvironmentID],
+		ProjectSlug:   m[ProjectSlug],
 	}
 }

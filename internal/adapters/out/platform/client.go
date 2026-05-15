@@ -95,7 +95,7 @@ func (c *Client) RegisterNode(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) ShipLogs(ctx context.Context, workloadID, projectID string, lines []ports.LogEntry) error {
+func (c *Client) ShipLogs(ctx context.Context, workloadID, projectID, environmentID string, lines []ports.LogEntry) error {
 	if len(lines) == 0 {
 		return nil
 	}
@@ -108,7 +108,7 @@ func (c *Client) ShipLogs(ctx context.Context, workloadID, projectID string, lin
 	for i, l := range lines {
 		dtos[i] = lineDTO{Ts: l.Ts.UTC().Format(time.RFC3339Nano), Stream: l.Stream, Line: l.Line}
 	}
-	payload := map[string]any{"project_id": projectID, "lines": dtos}
+	payload := map[string]any{"project_id": projectID, "environment_id": environmentID, "lines": dtos}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal log payload: %w", err)

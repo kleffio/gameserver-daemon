@@ -75,7 +75,11 @@ func (s *Scraper) scrape(ctx context.Context) {
 		}
 		activeIDs[srv.ID] = struct{}{}
 
-		health, err := s.runtime.Status(ctx, srv.ProjectID, srv.ID)
+		scopeID := srv.ProjectID
+		if scopeID == "" {
+			scopeID = srv.EnvironmentID
+		}
+		health, err := s.runtime.Status(ctx, scopeID, srv.ID)
 		if err != nil {
 			s.logger.Warn("metrics scraper: failed to get status", "workload_id", srv.ID, "error", err)
 			continue
