@@ -32,6 +32,7 @@ type Adapter struct {
 	nodeID           string
 	storageLocalPath string // path inside this container where server data is mounted
 	storageHostPath  string // corresponding host path passed to Docker for bind mounts
+	nodeNetwork      string // optional fixed network (e.g. the compose default network in dev)
 }
 
 var errContainerNotFound = errors.New("container not found")
@@ -40,7 +41,9 @@ var errContainerNotFound = errors.New("container not found")
 // daemon container where game server data lives (e.g. /var/lib/kleffd/servers).
 // The adapter auto-detects the matching host path by inspecting its own container
 // mounts so that bind mount sources are always valid host filesystem paths.
-func New(nodeID, storageLocalPath string) (*Adapter, error) {
+// nodeNetwork, if set, is an additional Docker network all workload containers are
+// joined to (useful in local dev to keep containers on the compose default network).
+func New(nodeID, storageLocalPath string, nodeNetwork string) (*Adapter, error) {
 	c, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker client: %w", err)
@@ -64,6 +67,7 @@ func New(nodeID, storageLocalPath string) (*Adapter, error) {
 		nodeID:           nodeID,
 		storageLocalPath: storageLocalPath,
 		storageHostPath:  storageHostPath,
+		nodeNetwork:      nodeNetwork,
 	}, nil
 }
 
@@ -267,10 +271,17 @@ func (a *Adapter) Deploy(ctx context.Context, spec ports.WorkloadSpec) (*ports.R
 		return nil, fmt.Errorf("workload spec missing namespace_id")
 	}
 
-	// Phase 1: prefer namespace-scoped bridge; fall back to project scope for legacy specs.
+	// If the daemon is configured with a fixed node network (e.g. the compose default
+	// network in dev), use it directly so containers are visible within the same
+	// network as the daemon. Otherwise create a per-namespace bridge for isolation.
 	var scope *ports.ProjectScope
 	var err error
-	if spec.NamespaceID != "" {
+	if a.nodeNetwork != "" {
+		scope = &ports.ProjectScope{
+			ProjectID:   spec.NamespaceID,
+			NetworkName: a.nodeNetwork,
+		}
+	} else if spec.NamespaceID != "" {
 		scope, err = a.EnsureNamespaceScope(ctx, spec.NamespaceID)
 	} else {
 		scope, err = a.EnsureProjectScope(ctx, spec.ProjectID, spec.ProjectSlug)

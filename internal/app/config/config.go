@@ -37,6 +37,10 @@ type Config struct {
 	StoragePath   string       `mapstructure:"storage.path"`
 	FileAPIPort   int          `mapstructure:"file_api.port"`
 	FileAPIURL    string       `mapstructure:"file_api.url"`
+	// NodeNetwork, if set, is the Docker network workload containers are joined to
+	// instead of a per-namespace bridge. Set this to the compose network name in
+	// local dev (e.g. "kleff-local") so containers appear inside the compose group.
+	NodeNetwork string `mapstructure:"node.network"`
 }
 
 func (c *Config) Validate() error {
@@ -87,6 +91,7 @@ func Load() (*Config, error) {
 	v.SetDefault("storage.path", "/var/lib/kleffd/servers")
 	v.SetDefault("file_api.port", 8083)
 	v.SetDefault("file_api.url", "")
+	v.SetDefault("node.network", "")
 
 	v.SetEnvPrefix("kleff")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -135,6 +140,7 @@ func Load() (*Config, error) {
 	cfg.StoragePath = v.GetString("storage.path")
 	cfg.FileAPIPort = v.GetInt("file_api.port")
 	cfg.FileAPIURL = v.GetString("file_api.url")
+	cfg.NodeNetwork = v.GetString("node.network")
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
