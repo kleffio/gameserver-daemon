@@ -14,10 +14,13 @@ type RunningServer struct {
 type WorkloadSpec struct {
 	// Identity / Tenancy
 	// Phase 1: NamespaceID is the authoritative tenancy key for network scoping.
-	NamespaceID string `json:"namespace_id"`
+	NamespaceID   string `json:"namespace_id"`
+	NamespaceSlug string `json:"namespace_slug,omitempty"`
 
 	OwnerID       string `json:"owner_id"`
+	OwnerUsername string `json:"owner_username,omitempty"`
 	ServerID      string `json:"server_id"`
+	ServerName    string `json:"server_name,omitempty"`
 	BlueprintID   string `json:"blueprint_id"`
 	EnvironmentID string `json:"environment_id,omitempty"`
 

@@ -795,36 +795,17 @@ func shortID(s string) string {
 	return s
 }
 
-// containerName builds a human-readable container name in the form
-// username.projectslug.servername, falling back gracefully when fields are absent.
+// containerName returns a human-readable Docker container name in the format
+// {owner}.{namespace|project}.{serverName}, falling back to the workload ID.
 func containerName(spec ports.WorkloadSpec) string {
-	var parts []string
-	if spec.OwnerUsername != "" {
-		parts = append(parts, sanitizeNamePart(spec.OwnerUsername))
+	owner := spec.OwnerUsername
+	scope := spec.NamespaceSlug
+	if scope == "" {
+		scope = spec.ProjectSlug
 	}
-	if spec.ProjectSlug != "" {
-		parts = append(parts, sanitizeNamePart(spec.ProjectSlug))
-	}
-	if spec.ServerName != "" {
-		parts = append(parts, sanitizeNamePart(spec.ServerName))
-	}
-	if len(parts) == 0 {
+	name := spec.ServerName
+	if owner == "" || scope == "" || name == "" {
 		return spec.ServerID
 	}
-	return strings.Join(parts, ".")
-}
-
-// sanitizeNamePart strips characters not allowed in Docker container names.
-var nameReplacer = strings.NewReplacer(" ", "-", "@", "-", "/", "-")
-
-func sanitizeNamePart(s string) string {
-	s = nameReplacer.Replace(strings.ToLower(strings.TrimSpace(s)))
-	var out []byte
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.' {
-			out = append(out, c)
-		}
-	}
-	return strings.Trim(string(out), "-.")
+	return fmt.Sprintf("%s.%s.%s", owner, scope, name)
 }
