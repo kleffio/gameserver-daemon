@@ -17,16 +17,18 @@ type Client struct {
 	baseURL      string
 	bootstrapKey string
 	nodeID       string
+	fileAPIURL   string
 	nodeToken    string
 	httpClient   *http.Client
 	logger       ports.Logger
 }
 
-func NewClient(baseURL, bootstrapKey, nodeID string, logger ports.Logger) *Client {
+func NewClient(baseURL, bootstrapKey, nodeID, fileAPIURL string, logger ports.Logger) *Client {
 	return &Client{
 		baseURL:      normalizeBaseURL(baseURL),
 		bootstrapKey: bootstrapKey,
 		nodeID:       nodeID,
+		fileAPIURL:   fileAPIURL,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -48,10 +50,11 @@ func (c *Client) RegisterNode(ctx context.Context) error {
 		return fmt.Errorf("platform shared secret is required")
 	}
 	payload := map[string]any{
-		"node_id":    c.nodeID,
-		"hostname":   c.nodeID,
-		"region":     "local",
-		"ip_address": "",
+		"node_id":      c.nodeID,
+		"hostname":     c.nodeID,
+		"region":       "local",
+		"ip_address":   "",
+		"file_api_url": c.fileAPIURL,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
