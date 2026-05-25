@@ -35,6 +35,8 @@ type Config struct {
 	PlatformURL   string       `mapstructure:"platform.url"`
 	SharedSecret  string       `mapstructure:"shared_secret"`
 	StoragePath   string       `mapstructure:"storage.path"`
+	FileAPIPort   int          `mapstructure:"file_api.port"`
+	FileAPIURL    string       `mapstructure:"file_api.url"`
 }
 
 func (c *Config) Validate() error {
@@ -83,6 +85,8 @@ func Load() (*Config, error) {
 	v.SetDefault("platform.url", "")
 	v.SetDefault("shared_secret", "")
 	v.SetDefault("storage.path", "/var/lib/kleffd/servers")
+	v.SetDefault("file_api.port", 8083)
+	v.SetDefault("file_api.url", "")
 
 	v.SetEnvPrefix("kleff")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -129,6 +133,8 @@ func Load() (*Config, error) {
 	cfg.PlatformURL = v.GetString("platform.url")
 	cfg.SharedSecret = v.GetString("shared_secret")
 	cfg.StoragePath = v.GetString("storage.path")
+	cfg.FileAPIPort = v.GetInt("file_api.port")
+	cfg.FileAPIURL = v.GetString("file_api.url")
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)

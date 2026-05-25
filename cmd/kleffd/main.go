@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kleffio/kleff-daemon/internal/adapters/in/fileapi"
 	"github.com/kleffio/kleff-daemon/internal/adapters/out/db"
 	"github.com/kleffio/kleff-daemon/internal/adapters/out/observability/logging"
 	platformadapter "github.com/kleffio/kleff-daemon/internal/adapters/out/platform"
@@ -82,8 +83,16 @@ func main() {
 		}
 	}
 
+	// --- File API server ---
+	fileServer := fileapi.NewServer(cfg.StoragePath, cfg.SharedSecret, cfg.FileAPIPort, daemonLog)
+	go func() {
+		if err := fileServer.Start(); err != nil {
+			daemonLog.Warn("File API server stopped", "error", err)
+		}
+	}()
+
 	// --- Platform registration + status reporting ---
-	platformClient := platformadapter.NewClient(cfg.PlatformURL, cfg.SharedSecret, cfg.NodeID, daemonLog)
+	platformClient := platformadapter.NewClient(cfg.PlatformURL, cfg.SharedSecret, cfg.NodeID, cfg.FileAPIURL, daemonLog)
 	if err := platformClient.RegisterNode(context.Background()); err != nil {
 		daemonLog.Error("Failed to register node with platform", err)
 		os.Exit(1)
@@ -114,6 +123,11 @@ func main() {
 	go tailer.Run(ctx)
 
 	dispatcher.Run(ctx)
+
+	shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutCancel()
+	_ = fileServer.Shutdown(shutCtx)
+
 	daemonLog.Info("Daemon shutdown complete")
 }
 
