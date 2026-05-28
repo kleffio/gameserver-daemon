@@ -46,6 +46,9 @@ func (m *mockRuntime) Endpoint(ctx context.Context, projectID, workloadID string
 func (m *mockRuntime) Logs(ctx context.Context, projectID, workloadID string, follow bool) (io.ReadCloser, error) {
 	return nil, nil
 }
+func (m *mockRuntime) Discover(ctx context.Context) ([]*ports.ServerRecord, error) {
+	return nil, nil
+}
 
 type mockRepository struct {
 	saveCalled  bool
@@ -65,4 +68,11 @@ func (m *mockRepository) FindByID(ctx context.Context, id string) (*ports.Server
 
 func (m *mockRepository) UpdateStatus(ctx context.Context, id string, status string) error {
 	return nil
+}
+
+func (m *mockRepository) ListAll(ctx context.Context) ([]*ports.ServerRecord, error) {
+	if m.savedRecord == nil {
+		return []*ports.ServerRecord{}, m.returnErr
+	}
+	return []*ports.ServerRecord{m.savedRecord}, m.returnErr
 }

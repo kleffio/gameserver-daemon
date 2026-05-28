@@ -178,7 +178,8 @@ func ensureProjectNetwork(ctx context.Context, cli *client.Client, name, project
 
 	netLabels := map[string]string{
 		labels.ManagedBy: labels.ManagedByValue,
-		labels.ProjectID: projectID,
+				labels.ProjectID: projectID,
+				labels.EnvironmentID: projectID,
 	}
 	if projectSlug != "" {
 		netLabels[labels.ProjectSlug] = projectSlug

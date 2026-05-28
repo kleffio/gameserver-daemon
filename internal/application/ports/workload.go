@@ -13,13 +13,21 @@ type RunningServer struct {
 // It is a superset of the old ServerOperationPayload — all existing fields carry over.
 type WorkloadSpec struct {
 	// Identity / Tenancy
+	// Phase 1: NamespaceID is the authoritative tenancy key for network scoping.
+	NamespaceID   string `json:"namespace_id"`
+	NamespaceSlug string `json:"namespace_slug,omitempty"`
+
 	OwnerID       string `json:"owner_id"`
 	OwnerUsername string `json:"owner_username,omitempty"`
 	ServerID      string `json:"server_id"`
 	ServerName    string `json:"server_name,omitempty"`
 	BlueprintID   string `json:"blueprint_id"`
-	ProjectID     string `json:"project_id"`
-	ProjectSlug   string `json:"project_slug"`
+	EnvironmentID string `json:"environment_id,omitempty"`
+
+	// Legacy fields: retained for daemon compat layer while old containers
+	// still have kleff.io/project_id labels (Docker labels are immutable).
+	ProjectID   string `json:"project_id,omitempty"`
+	ProjectSlug string `json:"project_slug,omitempty"`
 
 	// Blueprint details required for provision/start
 	Image            string            `json:"image"`

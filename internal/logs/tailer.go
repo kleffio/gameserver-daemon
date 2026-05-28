@@ -84,7 +84,7 @@ func (t *Tailer) reconcile(ctx context.Context) {
 			t.mu.Lock()
 			t.running[srv.ID] = cancel
 			t.mu.Unlock()
-			go t.tail(wctx, srv.ID, srv.ProjectID)
+			go t.tail(wctx, srv.ID, srv.ProjectID, srv.EnvironmentID)
 		}
 	}
 
@@ -109,14 +109,18 @@ func (t *Tailer) stopAll() {
 }
 
 // tail streams logs for one workload until ctx is cancelled or the container exits.
-func (t *Tailer) tail(ctx context.Context, workloadID, projectID string) {
+func (t *Tailer) tail(ctx context.Context, workloadID, projectID, environmentID string) {
 	defer func() {
 		t.mu.Lock()
 		delete(t.running, workloadID)
 		t.mu.Unlock()
 	}()
 
-	rc, err := t.runtime.Logs(ctx, projectID, workloadID, true)
+	scopeID := projectID
+	if scopeID == "" {
+		scopeID = environmentID
+	}
+	rc, err := t.runtime.Logs(ctx, scopeID, workloadID, true)
 	if err != nil {
 		t.logger.Warn("log tailer: failed to open log stream", "workload_id", workloadID, "error", err)
 		return
@@ -150,26 +154,26 @@ func (t *Tailer) tail(ctx context.Context, workloadID, projectID string) {
 		select {
 		case <-ctx.Done():
 			if len(batch) > 0 {
-				_ = t.shipper.ShipLogs(context.Background(), workloadID, projectID, batch)
+				_ = t.shipper.ShipLogs(context.Background(), workloadID, projectID, environmentID, batch)
 			}
 			return
 		case entry, ok := <-lines:
 			if !ok {
 				if len(batch) > 0 {
-					_ = t.shipper.ShipLogs(context.Background(), workloadID, projectID, batch)
+					_ = t.shipper.ShipLogs(context.Background(), workloadID, projectID, environmentID, batch)
 				}
 				return
 			}
 			batch = append(batch, entry)
 			if len(batch) >= batchSize {
-				if err := t.shipper.ShipLogs(ctx, workloadID, projectID, batch); err != nil {
+				if err := t.shipper.ShipLogs(ctx, workloadID, projectID, environmentID, batch); err != nil {
 					t.logger.Warn("log tailer: ship failed", "workload_id", workloadID, "error", err)
 				}
 				batch = batch[:0]
 			}
 		case <-flush.C:
 			if len(batch) > 0 {
-				if err := t.shipper.ShipLogs(ctx, workloadID, projectID, batch); err != nil {
+				if err := t.shipper.ShipLogs(ctx, workloadID, projectID, environmentID, batch); err != nil {
 					t.logger.Warn("log tailer: ship failed", "workload_id", workloadID, "error", err)
 				}
 				batch = batch[:0]

@@ -79,7 +79,7 @@ func main() {
 }
 
 func runDocker(cleanup bool, serverID string, spec ports.WorkloadSpec) {
-	adapter, err := dockeradapter.New("test-node", "/var/lib/kleffd/servers")
+	adapter, err := dockeradapter.New("test-node", "/var/lib/kleffd/servers", "")
 	if err != nil {
 		log.Fatalf("failed to create docker adapter: %v", err)
 	}

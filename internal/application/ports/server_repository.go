@@ -12,6 +12,7 @@ type ServerRecord struct {
 	Runtime    string
 	RuntimeRef string
 	ProjectID  string
+	EnvironmentID string
 }
 
 type ServerRepository interface {

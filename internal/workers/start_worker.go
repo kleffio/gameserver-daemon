@@ -33,7 +33,14 @@ func (w *StartWorker) Handle(ctx context.Context, job *jobs.Job) error {
 	}
 
 	if spec.ProjectID == "" {
-		return fmt.Errorf("invalid payload: project_id is required")
+		if spec.EnvironmentID != "" {
+			spec.ProjectID = spec.EnvironmentID
+		} else if spec.NamespaceID != "" {
+			spec.ProjectID = spec.NamespaceID
+		}
+	}
+	if spec.ProjectID == "" {
+		return fmt.Errorf("invalid payload: project_id or namespace_id is required")
 	}
 
 	report := func(status, runtimeRef, endpoint, errMsg string) {

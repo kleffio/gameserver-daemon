@@ -70,16 +70,18 @@ func main() {
 	// --- Repository ---
 	repo := memrepo.NewServerRepository()
 
-	// Reseed the in-memory repository from any workloads that were running
-	// before this daemon process started (e.g. after a daemon restart).
-	if existing, err := runtime.ListRunning(context.Background()); err != nil {
-		daemonLog.Warn("Failed to recover running workloads on startup", "error", err)
+	// Re-adopt containers from a previous daemon run so the tailer and scraper
+	// resume without waiting for the next provision job.
+	if existing, discErr := runtime.Discover(context.Background()); discErr != nil {
+		daemonLog.Warn("Failed to discover existing workloads on startup", "error", discErr)
 	} else {
-		for _, srv := range existing {
-			_ = repo.Save(context.Background(), srv)
+		for _, rec := range existing {
+			if saveErr := repo.Save(context.Background(), rec); saveErr != nil {
+				daemonLog.Warn("Failed to restore workload record", "workload_id", rec.ID, "error", saveErr)
+			}
 		}
 		if len(existing) > 0 {
-			daemonLog.Info("Recovered running workloads", "count", len(existing))
+			daemonLog.Info("Restored workload records from runtime", "count", len(existing))
 		}
 	}
 
@@ -90,6 +92,7 @@ func main() {
 			daemonLog.Warn("File API server stopped", "error", err)
 		}
 	}()
+
 
 	// --- Platform registration + status reporting ---
 	platformClient := platformadapter.NewClient(cfg.PlatformURL, cfg.SharedSecret, cfg.NodeID, cfg.FileAPIURL, daemonLog)
@@ -155,7 +158,7 @@ func detectRuntime(cfg *config.Config, logger ports.Logger) (ports.RuntimeAdapte
 	}
 
 	// No Kubernetes — check if Docker is actually reachable before using it.
-	dockerAdapter, err := dockeradapter.New(cfg.NodeID, cfg.StoragePath)
+	dockerAdapter, err := dockeradapter.New(cfg.NodeID, cfg.StoragePath, cfg.NodeNetwork)
 	if err != nil {
 		return nil, fmt.Errorf("no runtime available: kubernetes not detected, docker client failed: %w", err)
 	}

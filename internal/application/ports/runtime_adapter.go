@@ -52,8 +52,7 @@ type RuntimeAdapter interface {
 	// RemoveFile deletes a previously injected file from the workload's volume.
 	RemoveFile(ctx context.Context, projectID, workloadID, storagePath, contentType, fileName string) error
 
-	// ListRunning returns server records for all workloads currently managed by
-	// this daemon that are in a running state. Used to reseed the in-memory
-	// repository after a daemon restart.
-	ListRunning(ctx context.Context) ([]*ServerRecord, error)
+	// Discover returns all workloads currently managed by this runtime node.
+	// Called on daemon startup to re-populate the server repository after a restart.
+	Discover(ctx context.Context) ([]*ServerRecord, error)
 }
